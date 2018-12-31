@@ -1,0 +1,229 @@
+import os
+from os import path
+import sys
+import csv
+import itertools
+from openpyxl import Workbook
+import pyodbc
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import datetime as dt
+from mpl_toolkits.basemap import Basemap
+from matplotlib.collections import PatchCollection
+import matplotlib.patches as mpatches
+from matplotlib.colors import Normalize
+
+conn_str = ''
+db = pyodbc.connect(conn_str)
+Query = ''
+Insurers_analysis = Query
+Insurers_analysis_data = pd.read_sql(Insurers_analysis,db)
+location_coordinates = pd.read_excel(Excel file containing customers list with location co-ordinates)
+location_coordinates = location_coordinates .drop(['Customer_name','Customer_address_line1','Customer_address_line2','Customer_city','Customer_city','Customer_zip'], axis =1)
+Insurance_name = pd.read_excel("D:\\newsoftware\\Insurence List\\Master Data.xlsx")
+Insurers_analysis_data = pd.merge(Insurers_analysis_data, Insurance_name, on = 'INSURER_NAME')
+Insurers_analysis_data = Insurers_analysis_data[['INVOICE', 'INVOICE DATE','Customer_code', 'CUSTOMER NAME', 'CUSTOMER CITY','INSURER_NAME','INSURER_NAME_LONG','QTY','PRODUCT TOTAL']]
+Insurers_analysis_data['TOTAL_SALES_AMOUNT'] = Insurers_analysis_data['QTY'] * Insurers_analysis_data['PRODUCT TOTAL']
+MERGED_DATA = pd.merge(Insurers_analysis_data, location_coordinates, on = 'Customer_code')
+
+Insurers_analysis_data['INVOICE'] = Insurers_analysis_data['INVOICE'].drop_duplicates
+#Insurers_analysis_data['INSURER_NAME'] = Insurers_analysis_data['INSURER_NAME'].replace('N/A','No Name')
+Insurers_analysis_data['INSURER_NAME'] = Insurers_analysis_data['INSURER_NAME'].replace('   ','NOT APPLICABLE')
+
+Insurers_analysis_data['INVOICE DATE'] = pd.to_datetime(Insurers_analysis_data['INVOICE DATE'])
+Insurers_analysis_data['INVOICE DATE'] = Insurers_analysis_data['INVOICE DATE'].dt.strftime("%y/%m")
+Insurers_analysis_data.fillna(0)
+Insurers_pivot_city = pd.pivot_table(Insurers_analysis_data, index = ['CUSTOMER CITY'], columns = ['INSURER_NAME','INSURER_NAME_LONG'], values = ['TOTAL_SALES_AMOUNT'],aggfunc = sum, margins = True)
+
+Insurers_pivot_city.reset_index(inplace = True)
+Insurers_pivot_city.fillna(0)
+Insurers_pivot_city.to_csv("D:\\newsoftware\\Insurers Performance\\Citywise_Insurance_sales.csv")
+
+Insurers_pivot = pd.pivot_table(Insurers_analysis_data, index = ['INSURER_NAME','INSURER_NAME_LONG'], values = ['TOTAL_SALES_AMOUNT'], aggfunc = sum, margins = True).round(0)
+#Insurers_pivot.sort_values(by = ['TOTAL_SALES_AMOUNT'])
+
+Insurers_pivot.to_csv("D:\\newsoftware\\Insurers Performance\\ALL_Insurance_sales.csv")
+Insurers_pivot.reset_index(inplace = True)
+Insurers_pivot = Insurers_pivot.loc[(Insurers_pivot['INSURER_NAME'] != 'No Name') & (Insurers_pivot['INSURER_NAME'] != '   ')]
+Insurers_pivot.TOTAL_SALES_AMOUNT = Insurers_pivot.TOTAL_SALES_AMOUNT.astype(int)
+
+#Insurers_crosstab = pd.crosstab([Insurers_analysis_data['INSURER NAME']],[Insurers_analysis_data['CUSTOMER CITY']], values = [Insurers_analysis_data['TOTAL SALES AMOUNT']],aggfunc = sum)
+#Insurers_crosstab = pd.crosstab([Insurers_analysis_data['INSURER NAME']],
+                                #[Insurers_analysis_data['CUSTOMER CITY']],
+                                #values = [Insurers_analysis_data['TOTAL SALES AMOUNT']],aggfunc = sum,
+                                #margins = True)
+
+Insurers_performance_bylocation = pd.pivot_table(MERGED_DATA, index = ['INSURER_NAME','City Category','INSURER_NAME_LONG','lat','lng'],values = ['TOTAL_SALES_AMOUNT'], aggfunc = sum)
+Insurers_performance_bylocation.reset_index(inplace = True)
+Insurers_performance_bylocation = Insurers_performance_bylocation.loc[(Insurers_performance_bylocation['INSURER_NAME'] != 'No Name')]
+
+def remove_duplicates(Insurer_name):
+    
+    
+    Insurer_name_new = []    
+    for name in Insurer_name:
+        if name not in Insurer_name_new:
+            Insurer_name_new.append(name)
+
+    for i in  Insurer_name_new:
+        i = str(i)
+        return i    
+    
+Insurance_select = input("Insurance Name: ")
+
+#for insurance in Insurer_name_new[:9]:
+
+def maps(Insurance_Name):
+    
+    df = Insurers_performance_bylocation.loc[Insurers_performance_bylocation['INSURER_NAME'] == Insurance_Name]
+    i = (df['INSURER_NAME_LONG']).tolist()
+    i_name_long = remove_duplicates(i)    
+    df_city_category = pd.pivot_table(df, index = ['City Category'], values = ['TOTAL_SALES_AMOUNT'], aggfunc = sum)
+    df_city_category.reset_index(inplace = True)
+    Sales_amount = df_city_category['TOTAL_SALES_AMOUNT'].tolist()
+    print(Sales_amount)
+    max_value = max(Sales_amount) + 2500
+    fig, axes = plt.subplots(2, 1)#denotes rows and columns
+    axes[0].set_title("{} MAP Projection".format(i_name_long), size = 18.0)    
+    lllon = -108.01
+    urlon = -90.13
+    lllat = 25.04
+    urlat = 36.98   
+
+
+    map = Basemap(projection='lcc', resolution='h', 
+            lat_0=31.35, lon_0=-100.34,
+            width=8E6, height=1.6E6, ax=axes[0])
+
+    map.drawmapboundary()
+    #map.fillcontinents(color='coral',lake_color='aqua')
+    map.drawcoastlines()
+    map.drawcountries()
+    map.drawstates()  
+
+    lons = df['lng'].tolist()    
+    lats = df['lat'].tolist()
+    x, y = map(lons, lats)
+    markersize_list = df['TOTAL_SALES_AMOUNT'].tolist()
+    
+    for i,j,c in zip(lons,lats, markersize_list):
+        map.plot(x, y,'bo',markersize = c/1000,color='m')
+
+    sns.set_style("whitegrid", {'axes.grid' : True})
+    sns.set(font_scale = 0.7)
+    Category_area = sns.barplot(x = 'City Category', y = 'TOTAL_SALES_AMOUNT', data = df_city_category, order=None, hue_order=None, ax=axes[1])
+    axes[1].set_title("{} Performance in Different Areas".format(i_name_long), size = 18.0)
+    axes[1].set_xlabel("AREA", size = 12.0)
+    axes[1].set_ylabel("Sales", size = 12.0)
+    #check if this line is correct
+    barwidth = 0.1
+    axes[1].set_ylim(0,max_value)
+    #label_ = employee_name_sales_return.INVOICE_DATE
+
+    for x in axes[1].patches:
+        height = x.get_height()
+        axes[1].text(x.get_x()+x.get_width(), height+3,'{:1.0f}'.format(height),ha="right")     
+      
+    plt.show()
+    
+ def comparison(Insurer_1, Insurer_2):
+    df_1 = Insurers_performance_bylocation.loc[Insurers_performance_bylocation['INSURER_NAME'] == Insurer_1]
+    i = (df_1['INSURER_NAME_LONG']).tolist()
+    i_name_long = remove_duplicates(i)
+
+    df_2 = Insurers_performance_bylocation.loc[Insurers_performance_bylocation['INSURER_NAME'] == Insurer_2]
+    j = (df_2['INSURER_NAME_LONG']).tolist()
+    j_name_long = remove_duplicates(j)    
+   
+    df_1_city_category = pd.pivot_table(df_1, index = ['City Category'], values = ['TOTAL_SALES_AMOUNT'], aggfunc = sum)
+    df_1_city_category.reset_index(inplace = True)
+    Sales_amount_1 = df_1_city_category['TOTAL_SALES_AMOUNT'].tolist()
+
+    df_2_city_category = pd.pivot_table(df_2, index = ['City Category'], values = ['TOTAL_SALES_AMOUNT'], aggfunc = sum)
+    df_2_city_category.reset_index(inplace = True)
+    Sales_amount_2 = df_2_city_category['TOTAL_SALES_AMOUNT'].tolist()
+    
+    fig, axes = plt.subplots(2, 1)#denotes rows and columns
+    
+    axes[0].set_title("{} & {} MAP Projection".format(i_name_long,j_name_long), size = 18.0)
+    
+    lllon = -108.01
+    urlon = -90.13
+    lllat = 25.04
+    urlat = 36.98   
+
+    map = Basemap(projection='lcc', resolution='h', 
+            lat_0=31.35, lon_0=-100.34,
+            width=8E6, height=1.6E6, ax=axes[0])
+
+    map.drawmapboundary()
+    #map.fillcontinents(color='coral',lake_color='aqua')
+    map.drawcoastlines()
+    map.drawcountries()
+    map.drawstates()  
+
+    lons_1 = df_1['lng'].tolist()    
+    lats_1 = df_1['lat'].tolist()
+    x1, y1 = map(lons_1, lats_1)
+    markersize_list = df_1['TOTAL_SALES_AMOUNT'].tolist()
+    
+    for i1,j1,c1 in zip(lons_1,lats_1, markersize_list):
+        m1 = map.plot(x1, y1,'bo',markersize = c1/1000,color='g')
+
+    lons_2 = df_2['lng'].tolist()    
+    lats_2 = df_2['lat'].tolist()
+    x2, y2 = map(lons_2, lats_2)
+    markersize_list = df_2['TOTAL_SALES_AMOUNT'].tolist()
+    
+    for i2,j2,c2 in zip(lons_1,lats_1, markersize_list):
+        m2 = map.plot(x2, y2,'bo',markersize = c2/1000,color='m')
+    low = mpatches.Patch(color='g', label= Insurer_1)
+    med = mpatches.Patch(color='m', label= Insurer_2)
+    
+    plt.legend(handles=[low,med],title='Insurers Spread out')
+    
+    frames = [df_1, df_2]
+    df_sns = pd.concat(frames, join = 'outer')
+    df_sns_pivot = pd.pivot_table(df_sns, index = ['INSURER_NAME','City Category'], values = ['TOTAL_SALES_AMOUNT'], aggfunc = sum)
+    df_sns_pivot.reset_index(inplace = True)
+    Sales_amount_sns = df_sns_pivot['TOTAL_SALES_AMOUNT'].tolist()
+    max_value_comp_chart = max(Sales_amount_sns) + 2500
+   
+    sns.set_style("whitegrid", {'axes.grid' : True})
+    sns.set(font_scale = 0.7)
+    Category_area_1 = sns.barplot(x = 'City Category', y = 'TOTAL_SALES_AMOUNT', data = df_sns_pivot, hue =  'INSURER_NAME', ax=axes[1])
+    
+    axes[1].set_title("{} & {} in Different Areas".format(i_name_long, j_name_long), size = 18.0)
+    axes[1].set_xlabel("AREA", size = 12.0)
+    axes[1].set_ylabel("Sales", size = 12.0)
+    #check if this line is correct
+    barwidth = 0.1
+    axes[1].set_ylim(0,max_value_comp_chart)
+    #label_ = employee_name_sales_return.INVOICE_DATE
+
+    for x in axes[1].patches:
+        height = x.get_height()
+        axes[1].text(x.get_x()+x.get_width(), height+3,'{:1.0f}'.format(height),ha="right")
+    #axes[0].legend((m1, m2), (i_name_long, j_name_long))  
+    
+    
+    plt.show()
+    
+exhibit_map = maps(Insurance_select)
+question = input(str("Do you want to compare any two Insurance in different Areas ? (y/n) "))
+if question == 'y':
+    
+    Insurance_select_comp_1 = input(str("Insurance Name: "))
+    Insurance_select_comp_2 = input(str("Insurance Name to be compared: "))
+    try:
+        
+        comparison_charts = comparison(Insurance_select_comp_1,Insurance_select_comp_2)
+    except:
+
+        print("Please enter a proper Name")
+elif question == 'n':
+    print("Save your charts")
+
+else:
+    print("Your options does nt fit in here, for right option choose either  y or n")
