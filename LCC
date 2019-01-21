@@ -14,52 +14,66 @@ from matplotlib.collections import PatchCollection
 import matplotlib.patches as mpatches
 from matplotlib.colors import Normalize
 
+#Connection to DB to pull out necessary data
+#6 Tables used to draw out necessary information
 conn_str = ''
 db = pyodbc.connect(conn_str)
 Query = ''
 Insurers_analysis = Query
 Insurers_analysis_data = pd.read_sql(Insurers_analysis,db)
+
+#Reading an Excel file to get location coordiantes of all customers in Customer Master(Approximately 25000 customers)
+#Location coordinates of customer location were derived from Google maps API
+
 location_coordinates = pd.read_excel(Excel file containing customers list with location co-ordinates)
 location_coordinates = location_coordinates .drop(['Customer_name','Customer_address_line1','Customer_address_line2','Customer_city','Customer_city','Customer_zip'], axis =1)
+
+#Importing an Excel file containing list of All Insurance companies with their abbrevations
+
 Insurance_name = pd.read_excel("D:\\newsoftware\\Insurence List\\Master Data.xlsx")
+
+#Data Wrangling
+#Merging Data and cutting out the weeds from Data
+
 Insurers_analysis_data = pd.merge(Insurers_analysis_data, Insurance_name, on = 'INSURER_NAME')
 Insurers_analysis_data = Insurers_analysis_data[['INVOICE', 'INVOICE DATE','Customer_code', 'CUSTOMER NAME', 'CUSTOMER CITY','INSURER_NAME','INSURER_NAME_LONG','QTY','PRODUCT TOTAL']]
 Insurers_analysis_data['TOTAL_SALES_AMOUNT'] = Insurers_analysis_data['QTY'] * Insurers_analysis_data['PRODUCT TOTAL']
 MERGED_DATA = pd.merge(Insurers_analysis_data, location_coordinates, on = 'Customer_code')
-
 Insurers_analysis_data['INVOICE'] = Insurers_analysis_data['INVOICE'].drop_duplicates
 #Insurers_analysis_data['INSURER_NAME'] = Insurers_analysis_data['INSURER_NAME'].replace('N/A','No Name')
 Insurers_analysis_data['INSURER_NAME'] = Insurers_analysis_data['INSURER_NAME'].replace('   ','NOT APPLICABLE')
 
+
+#Converting Date column to DateTime format and stripped off Date keeping in hand only month and Year
+
 Insurers_analysis_data['INVOICE DATE'] = pd.to_datetime(Insurers_analysis_data['INVOICE DATE'])
 Insurers_analysis_data['INVOICE DATE'] = Insurers_analysis_data['INVOICE DATE'].dt.strftime("%y/%m")
 Insurers_analysis_data.fillna(0)
-Insurers_pivot_city = pd.pivot_table(Insurers_analysis_data, index = ['CUSTOMER CITY'], columns = ['INSURER_NAME','INSURER_NAME_LONG'], values = ['TOTAL_SALES_AMOUNT'],aggfunc = sum, margins = True)
 
+#Insurers Leads to Sales Conversion Categorized by City
+Insurers_pivot_city = pd.pivot_table(Insurers_analysis_data, index = ['CUSTOMER CITY'], columns = ['INSURER_NAME','INSURER_NAME_LONG'], values = ['TOTAL_SALES_AMOUNT'],aggfunc = sum, margins = True)
 Insurers_pivot_city.reset_index(inplace = True)
 Insurers_pivot_city.fillna(0)
 Insurers_pivot_city.to_csv("D:\\newsoftware\\Insurers Performance\\Citywise_Insurance_sales.csv")
 
+#Insurers Leads to Sales Conversion categorized by Insurers
+
 Insurers_pivot = pd.pivot_table(Insurers_analysis_data, index = ['INSURER_NAME','INSURER_NAME_LONG'], values = ['TOTAL_SALES_AMOUNT'], aggfunc = sum, margins = True).round(0)
 #Insurers_pivot.sort_values(by = ['TOTAL_SALES_AMOUNT'])
-
 Insurers_pivot.to_csv("D:\\newsoftware\\Insurers Performance\\ALL_Insurance_sales.csv")
 Insurers_pivot.reset_index(inplace = True)
 Insurers_pivot = Insurers_pivot.loc[(Insurers_pivot['INSURER_NAME'] != 'No Name') & (Insurers_pivot['INSURER_NAME'] != '   ')]
 Insurers_pivot.TOTAL_SALES_AMOUNT = Insurers_pivot.TOTAL_SALES_AMOUNT.astype(int)
 
-#Insurers_crosstab = pd.crosstab([Insurers_analysis_data['INSURER NAME']],[Insurers_analysis_data['CUSTOMER CITY']], values = [Insurers_analysis_data['TOTAL SALES AMOUNT']],aggfunc = sum)
-#Insurers_crosstab = pd.crosstab([Insurers_analysis_data['INSURER NAME']],
-                                #[Insurers_analysis_data['CUSTOMER CITY']],
-                                #values = [Insurers_analysis_data['TOTAL SALES AMOUNT']],aggfunc = sum,
-                                #margins = True)
+
+#Insurers Leads to Sales Conversion
 
 Insurers_performance_bylocation = pd.pivot_table(MERGED_DATA, index = ['INSURER_NAME','City Category','INSURER_NAME_LONG','lat','lng'],values = ['TOTAL_SALES_AMOUNT'], aggfunc = sum)
 Insurers_performance_bylocation.reset_index(inplace = True)
 Insurers_performance_bylocation = Insurers_performance_bylocation.loc[(Insurers_performance_bylocation['INSURER_NAME'] != 'No Name')]
 
-def remove_duplicates(Insurer_name):
-    
+#Function to remove Insurers Name Duplicates
+def remove_duplicates(Insurer_name):   
     
     Insurer_name_new = []    
     for name in Insurer_name:
@@ -73,6 +87,9 @@ def remove_duplicates(Insurer_name):
 Insurance_select = input("Insurance Name: ")
 
 #for insurance in Insurer_name_new[:9]:
+
+
+#Function to use basemap projection to view order location spread out and comparisons
 
 def maps(Insurance_Name):
     
@@ -97,7 +114,6 @@ def maps(Insurance_Name):
             width=8E6, height=1.6E6, ax=axes[0])
 
     map.drawmapboundary()
-    #map.fillcontinents(color='coral',lake_color='aqua')
     map.drawcoastlines()
     map.drawcountries()
     map.drawstates()  
@@ -126,6 +142,8 @@ def maps(Insurance_Name):
         axes[1].text(x.get_x()+x.get_width(), height+3,'{:1.0f}'.format(height),ha="right")     
       
     plt.show()
+    
+ #Function to compare between 2 different Insurance companies on their Leads
     
  def comparison(Insurer_1, Insurer_2):
     df_1 = Insurers_performance_bylocation.loc[Insurers_performance_bylocation['INSURER_NAME'] == Insurer_1]
@@ -188,11 +206,11 @@ def maps(Insurance_Name):
     df_sns_pivot = pd.pivot_table(df_sns, index = ['INSURER_NAME','City Category'], values = ['TOTAL_SALES_AMOUNT'], aggfunc = sum)
     df_sns_pivot.reset_index(inplace = True)
     Sales_amount_sns = df_sns_pivot['TOTAL_SALES_AMOUNT'].tolist()
-    max_value_comp_chart = max(Sales_amount_sns) + 2500
-   
+    max_value_comp_chart = max(Sales_amount_sns) + 2500   
     sns.set_style("whitegrid", {'axes.grid' : True})
     sns.set(font_scale = 0.7)
     Category_area_1 = sns.barplot(x = 'City Category', y = 'TOTAL_SALES_AMOUNT', data = df_sns_pivot, hue =  'INSURER_NAME', ax=axes[1])
+    
     
     axes[1].set_title("{} & {} in Different Areas".format(i_name_long, j_name_long), size = 18.0)
     axes[1].set_xlabel("AREA", size = 12.0)
@@ -209,7 +227,8 @@ def maps(Insurance_Name):
     
     
     plt.show()
-    
+ 
+#Get Input From User to Display Results 
 exhibit_map = maps(Insurance_select)
 question = input(str("Do you want to compare any two Insurance in different Areas ? (y/n) "))
 if question == 'y':
